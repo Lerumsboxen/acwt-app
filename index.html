@@ -1243,17 +1243,12 @@
     var vals = range.getValues();
     if (vals.length < 2) return json({program: {}});
 
-    // Detect structure: look for a "date" column and a "program"/"workout" column
+    // Column layout: A=day, B=date, C=strength, D=workout
     var hdrs = vals[0].map(function(h) { return (h+"").toLowerCase().trim(); });
-    var dateIdx = -1;
-    var programIdx = -1;
-    hdrs.forEach(function(h, i) {
-      if (dateIdx < 0 && (h === "date" || h === "datum" || h.includes("date"))) dateIdx = i;
-      if (programIdx < 0 && (h === "program" || h === "workout" || h === "training" || h.includes("program") || h.includes("workout"))) programIdx = i;
-    });
-    // Fallback: first column = date, second = program
-    if (dateIdx < 0) dateIdx = 0;
-    if (programIdx < 0) programIdx = 1;
+    var dateIdx = hdrs.indexOf("date") >= 0 ? hdrs.indexOf("date") : 1;
+    var strengthIdx = hdrs.indexOf("strength") >= 0 ? hdrs.indexOf("strength") : 2;
+    var workoutIdx = hdrs.indexOf("workout") >= 0 ? hdrs.indexOf("workout") : 3;
+    var programIdx = strengthIdx; // primary content column
 
     // Get rich text for bold support
     var richVals = null;
@@ -1292,8 +1287,11 @@
       var iso = Utilities.formatDate(date, tz, "yyyy-MM-dd");
       var richRow = richVals ? richVals[rowIdx + 1] : null;
       var progText = richRow ? richToHtml(richRow[programIdx]) : (row[programIdx] || "").toString().trim();
-      if (progText)
-        program[iso] = {strength: progText, workout: "", club: "", hyrox: "", endurance: "", oly: progText};
+      var strengthText = richRow ? richToHtml(richRow[strengthIdx]) : (row[strengthIdx] || "").toString().trim();
+      var workoutText  = richRow ? richToHtml(richRow[workoutIdx])  : (row[workoutIdx]  || "").toString().trim();
+      var combined = [strengthText, workoutText].filter(Boolean).join("\n");
+      if (combined)
+        program[iso] = {strength: strengthText, workout: workoutText, club: "", hyrox: "", endurance: "", oly: combined};
     });
     return json({program: program, dateCol: dateIdx, programCol: programIdx});
   }
@@ -1575,7 +1573,7 @@ function json(obj) {
       </p>
       <div class="form-group" style="margin-bottom:0.75rem;">
         <label>Sheet Tab Name (e.g. 2026)</label>
-        <input type="text" id="programSheetTab" value="Sheet1" placeholder="Sheet1" onchange="saveProgramSettings()">
+        <input type="text" id="programSheetTab" value="ACWT" placeholder="ACWT" onchange="saveProgramSettings()">
       </div>
       <p style="font-size:0.8rem;color:var(--muted);margin-bottom:0.75rem;">
         The app auto-detects which columns contain the date and program. Just make sure your sheet has a <strong>Date</strong> column and a <strong>Program</strong> (or Workout/Training) column header.
@@ -1901,7 +1899,7 @@ const DASH_SECTIONS = {
           + '</button></div>';
       }
 
-      const allProgText = prog ? (prog.strength || prog.oly || '') : '';
+      const allProgText = prog ? [(prog.strength||''), (prog.workout||'')].filter(Boolean).join('\n') : '';
       const sections = prog ? parseSections(allProgText.trim()) : [];
       const hasSections = sections.some(s => s.lines.some(l => l.trim()));
 
