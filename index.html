@@ -1045,6 +1045,9 @@
     <button class="header-icon-btn" id="headerSyncBtn" onclick="showPage('sync')" title="Sync settings">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:1rem;height:1rem;"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
     </button>
+    <button class="header-icon-btn" id="headerProgramSyncBtn" onclick="fetchDailyProgram()" title="Sync program" style="color:var(--text);">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:1rem;height:1rem;"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><polyline points="17 14 15 16 17 18"/><line x1="15" y1="16" x2="19" y2="16"/></svg>
+    </button>
     <button class="header-icon-btn" id="headerCloudBtn" onclick="cloudPull(true)" title="Sync my data across devices" style="font-size:1rem;">☁</button>
     <button class="header-icon-btn" id="headerProfileBtn" onclick="openProfileModal()" title="My Profile" style="font-size:1.1rem;" id="headerProfileAvatar">👤</button>
   </div>
@@ -1617,6 +1620,7 @@ function json(obj) {
         <div>🏋️ WODs tracked: <strong id="sumWods" style="color:var(--text);">0</strong></div>
         <div>🏆 PRs logged: <strong id="sumPRs" style="color:var(--text);">0</strong></div>
         <div>☁ Last synced: <strong id="sumLastSync" style="color:var(--text);">Never</strong></div>
+        <div style="margin-top:0.5rem;padding-top:0.5rem;border-top:1px solid var(--border);">📦 App version: <strong id="sumVersion" style="color:var(--text);">—</strong></div>
       </div>
     </div>
   </div>
@@ -1757,6 +1761,7 @@ function json(obj) {
     localStorage.setItem('acwt_app_version', '2');
   }
 })();
+const APP_VERSION = 'v8';
 let state = JSON.parse(localStorage.getItem('lerums_state') || 'null') || {
   wods: [],
   prs: [],
@@ -3801,6 +3806,21 @@ function enrichProgramText(text) {
     // Find ALL individual percentages in the line and annotate each one
     let resultLine = line;
 
+    // Pattern 0: dash-range percentages — "90-100 %" or "40-45 % of 5RM"
+    // Shows both endpoints as kg: "90-100 % → 115/127.5 kg"
+    resultLine = resultLine.replace(/(?<![\/\d])(\d{1,3}(?:[.,]\d+)?)\s*[-–]\s*(\d{1,3}(?:[.,]\d+)?)\s*%(\+?)(?:\s*of\s*(\d+)\s*RM)?/gi,
+      (match, lo, hi, plus, rmNum) => {
+        if (resultLine.includes('→')) return match; // already annotated
+        const loN = parseFloat(lo.replace(',', '.'));
+        const hiN = parseFloat(hi.replace(',', '.'));
+        if (loN <= 0 || loN > 100 || hiN <= 0 || hiN > 100) return match;
+        const loKg = calcWeight(rmValue, loN);
+        const hiKg = calcWeight(rmValue, hiN);
+        const suffix = rmNum ? ` % of ${rmNum}RM` : ' %';
+        return `${lo}-${hi}${suffix}<span style="color:#4ade80;font-weight:700;"> → ${loKg}/${hiKg}${plus} </span>`;
+      }
+    );
+
     // Pattern 1: slash-separated percentages — "60/65/70 %" or "30/37,5/45 %"
     // Format: keep original pcts, then append "→ X/Y/Z kg" at end
     resultLine = resultLine.replace(/(\b\d{1,3}(?:[.,]\d+)?)((?:\/\d{1,3}(?:[.,]\d+)?)+)\s*%(\+?)(?:\s*of\s*(\d+)\s*RM)?/gi,
@@ -4100,7 +4120,7 @@ async function fetchDailyProgram(silent = false) {
 }
 
 function autoSyncProgramIfEnabled() {
-  if (localStorage.getItem('acwt_lerums_program_auto') === '1') {
+  if (true) { // Always auto-sync for all users
     const lastSync = localStorage.getItem('acwt_lerums_program_last_sync') || '';
     const today = new Date().toDateString();
     const lastDate = lastSync ? new Date(lastSync).toDateString() : '';
@@ -4354,9 +4374,12 @@ function isAdmin() {
 }
 
 function applyAdminVisibility() {
-  // Sync header button — admin only
+  // Sync settings button — admin only
   const syncBtn = document.getElementById('headerSyncBtn');
   if (syncBtn) syncBtn.style.display = isAdmin() ? '' : 'none';
+  // Program sync button — always visible
+  const progSyncBtn = document.getElementById('headerProgramSyncBtn');
+  if (progSyncBtn) progSyncBtn.style.display = '';
   // Sync tab in bottom nav — admin only
   document.querySelectorAll('.tab').forEach(t => {
     if (t.textContent.includes('Sync')) t.style.display = isAdmin() ? '' : 'none';
@@ -5606,6 +5629,28 @@ window.addEventListener('beforeinstallprompt', function(e) {
   // Show a subtle install button if one exists
   var btn = document.getElementById('pwa-install-btn');
   if (btn) btn.style.display = 'block';
+});
+</script>
+<script>
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', function() {
+    navigator.serviceWorker.register('./sw.js', {scope: './'})
+      .then(function(reg) {
+        console.log('[PWA] SW registered, scope:', reg.scope);
+      })
+      .catch(function(err) {
+        console.error('[PWA] SW registration failed:', err);
+      });
+  });
+}
+window._pwaInstallPrompt = null;
+window.addEventListener('beforeinstallprompt', function(e) {
+  console.log('[PWA] beforeinstallprompt fired');
+  e.preventDefault();
+  window._pwaInstallPrompt = e;
+});
+window.addEventListener('appinstalled', function() {
+  console.log('[PWA] App installed');
 });
 </script>
 </body>
